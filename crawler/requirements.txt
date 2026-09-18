@@ -1,0 +1,4 @@
+scrapy==2.11.2
+twisted==24.3.0
+elasticsearch==8.13.0
+python-dotenv==1.0.1

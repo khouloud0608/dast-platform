@@ -1,0 +1,18 @@
+# Pre-downloaded pip wheels (large, rebuildable)
+**/wheels/
+# Scan output and generated artifacts
+output/
+*.pdf
+scan.log
+# Runtime config with credentials
+config.json
+# GUI-copied docker binaries (large, machine-specific)
+gui/docker
+gui/docker-compose
+# Python cruft
+__pycache__/
+*.pyc
+# Editor/OS
+*.swp
+*.bak
+.DS_Store

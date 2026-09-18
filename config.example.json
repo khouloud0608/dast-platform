@@ -1,0 +1,6 @@
+{
+  "target_url": "http://dvwa:80",
+  "app_type": "dvwa",
+  "credentials": {"username": "admin", "password": "password"},
+  "scan_id": "manual"
+}

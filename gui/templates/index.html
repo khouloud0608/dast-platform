@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DAST Platform — Security Scanner</title>
+<style>
+  :root {
+    --bg:#F4F6F9; --card:#FFFFFF; --border:#E2E8F0; --accent:#0E7490;
+    --accent-hover:#155E75; --accent-soft:#ECFEFF;
+    --green:#059669; --red:#DC2626; --orange:#EA580C; --yellow:#CA8A04;
+    --grey:#94A3B8; --text:#1E293B; --text-dim:#64748B;
+    --header-bg:#0F172A;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; }
+  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; display:flex; flex-direction:column; }
+
+  .header { background:var(--header-bg); padding:0 28px; height:56px; display:flex; align-items:center; justify-content:space-between; flex-shrink:0; }
+  .header-left { display:flex; align-items:center; gap:12px; }
+  .header-left h1 { font-size:15px; font-weight:600; color:#F1F5F9; letter-spacing:0.3px; }
+  .header-right { display:flex; gap:12px; align-items:center; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:6px 14px; }
+  .status-dot { width:8px; height:8px; border-radius:50%; background:var(--grey); }
+  .status-dot.running { background:#34D399; animation:pulse 1s infinite; }
+  .status-dot.done { background:#22D3EE; }
+  .status-dot.error { background:#F87171; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+  .status-text { font-size:12px; color:#CBD5E1; font-weight:500; }
+  .elapsed { font-size:12px; color:#94A3B8; font-variant-numeric:tabular-nums; border-left:1px solid rgba(255,255,255,0.15); padding-left:12px; }
+
+  .config-bar { background:var(--card); border-bottom:1px solid var(--border); padding:14px 28px; display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap; flex-shrink:0; }
+  .field { display:flex; flex-direction:column; }
+  .field.grow { flex:1; min-width:220px; }
+  .field.fixed { width:170px; }
+  label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:var(--text-dim); margin-bottom:4px; }
+  input, select { padding:8px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:13px; height:36px; }
+  input:focus, select:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  .checkbox-row { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-dim); height:36px; white-space:nowrap; }
+  .checkbox-row input { width:auto; height:auto; accent-color:var(--accent); }
+
+  .action-group { display:flex; gap:10px; margin-left:auto; align-items:center; }
+  .btn-scan { padding:0 22px; height:36px; background:var(--accent); color:#fff; border:none; border-radius:6px; font-size:13px; font-weight:700; cursor:pointer; transition:background 0.2s; }
+  .btn-scan:hover { background:var(--accent-hover); }
+  .btn-scan:disabled { background:var(--grey); cursor:not-allowed; }
+  .btn-stop { padding:0 18px; height:36px; background:#fff; color:var(--red); border:1px solid var(--red); border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; display:none; }
+  .btn-stop:hover { background:#FEF2F2; }
+  .btn-secondary { padding:0 14px; height:36px; background:#fff; color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; transition:all 0.2s; display:flex; align-items:center; gap:6px; text-decoration:none; white-space:nowrap; }
+  .btn-secondary:hover { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+  .btn-secondary.disabled { opacity:0.4; pointer-events:none; }
+
+  .stages { display:flex; align-items:center; gap:0; padding:14px 28px; background:var(--card); border-bottom:1px solid var(--border); flex-shrink:0; }
+  .stage { flex:1; display:flex; align-items:center; gap:8px; font-size:11px; font-weight:600; color:var(--text-dim); text-transform:uppercase; letter-spacing:1px; position:relative; }
+  .stage::before { content:''; width:22px; height:22px; border-radius:50%; border:2px solid var(--border); background:#fff; flex-shrink:0; }
+  .stage::after { content:''; flex:1; height:2px; background:var(--border); margin:0 10px; }
+  .stage:last-child::after { display:none; }
+  .stage.active { color:var(--accent); }
+  .stage.active::before { border-color:var(--accent); background:var(--accent); box-shadow:0 0 0 4px var(--accent-soft); animation:pulse 1s infinite; }
+  .stage.done { color:var(--green); }
+  .stage.done::before { border-color:var(--green); background:var(--green); }
+  .stage.error { color:var(--red); }
+  .stage.error::before { border-color:var(--red); background:var(--red); }
+
+  .workspace {
+    display:grid;
+    grid-template-columns:1fr;
+    grid-template-rows:minmax(0, 1fr) minmax(0, 1fr);
+    gap:16px;
+    padding:16px 28px;
+    flex:1;
+    min-height:0;
+    overflow:hidden;
+  }
+  .logs-section { grid-row:1; grid-column:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+  .ai-section   { grid-row:2; grid-column:1; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+
+  .logs-section, .ai-section { background:var(--card); border:1px solid var(--border); border-radius:10px; }
+  .logs-section h2, .ai-section h2 { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--text-dim); font-weight:700; padding:12px 16px; border-bottom:1px solid var(--border); background:#FAFBFC; display:flex; align-items:center; flex-shrink:0; }
+
+  .log-box { flex:1; min-height:0; background:#0F172A; margin:12px; border-radius:8px; padding:14px; overflow-y:auto; font-family:'Cascadia Code','Consolas',monospace; font-size:11.5px; color:#6EE7B7; line-height:1.7; white-space:pre-wrap; }
+  .ai-box { flex:1; min-height:0; margin:12px; overflow-y:auto; }
+
+  .expand-btn { margin-left:auto; background:none; border:1px solid var(--border); border-radius:4px; padding:2px 10px; font-size:11px; cursor:pointer; color:var(--text-dim); }
+  .expand-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .logs-section.expanded, .ai-section.expanded {
+    position:fixed; top:60px; left:5%; right:5%; bottom:5%;
+    z-index:100; background:var(--card);
+    box-shadow:0 10px 40px rgba(0,0,0,0.25);
+  }
+
+  .stat-card { background:var(--card); border:1px solid var(--border); border-left:4px solid var(--grey); border-radius:8px; padding:12px 16px; }
+  .stat-card .num { font-size:24px; font-weight:700; }
+  .stat-card .lbl { font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--text-dim); margin-top:2px; }
+  .stat-total { border-left-color:var(--accent); } .stat-total .num { color:var(--accent); }
+  .sev-critical { border-left-color:var(--red); } .sev-critical .num { color:var(--red); }
+  .sev-high { border-left-color:var(--orange); } .sev-high .num { color:var(--orange); }
+  .sev-medium { border-left-color:var(--yellow); } .sev-medium .num { color:var(--yellow); }
+  .sev-low { border-left-color:var(--green); } .sev-low .num { color:var(--green); }
+  .sev-info { border-left-color:var(--grey); } .sev-info .num { color:var(--text-dim); }
+
+  .ai-placeholder { color:var(--text-dim); font-size:13px; text-align:center; padding:40px 10px; }
+  .ai-item { background:#F8FAFC; border:1px solid var(--border); border-left:3px solid var(--grey); border-radius:6px; padding:10px 14px; margin-bottom:10px; font-size:12px; }
+  .ai-item .title { font-weight:600; color:var(--text); margin-bottom:4px; font-size:13px; }
+  .ai-item .url { color:var(--text-dim); font-size:11px; word-break:break-all; margin-bottom:6px; }
+  .ai-item .expl { color:var(--text); line-height:1.5; }
+  .ai-item.sev-critical { border-left-color:var(--red); }
+  .ai-item.sev-high { border-left-color:var(--orange); }
+  .ai-item.sev-medium { border-left-color:var(--yellow); }
+  .ai-item.sev-low, .ai-item.sev-info { border-left-color:var(--green); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>Dynamic Application Security Testing Platform</h1>
+  </div>
+  <div class="header-right">
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-text" id="statusText">Ready</span>
+    <span class="elapsed" id="elapsed"></span>
+  </div>
+</div>
+
+<div class="config-bar">
+  <div class="field grow">
+    <label>Target URL</label>
+    <input type="text" id="target_url" value="{{ config.target_url }}" placeholder="http://target-application:80">
+  </div>
+  <div class="field fixed">
+    <label>Username</label>
+    <input type="text" id="username" value="{{ config.credentials.username }}" placeholder="Optional">
+  </div>
+  <div class="field fixed">
+    <label>Password</label>
+    <input type="password" id="password" value="{{ config.credentials.password }}" placeholder="Optional">
+  </div>
+  <div class="checkbox-row">
+    <input type="checkbox" id="run_ai" checked>
+    <span>AI Analysis</span>
+  </div>
+  <div class="action-group">
+    <button class="btn-scan" id="scanBtn" onclick="startScan()">Start Scan</button>
+    <button class="btn-stop" id="stopBtn" onclick="stopScan()">Stop</button>
+    <a href="#" id="kibanaBtn" target="_blank" class="btn-secondary disabled">Kibana Dashboards</a>
+    <a href="/download/report" class="btn-secondary disabled" id="reportBtn">⬇ PDF Report</a>
+    <a href="/download/ai_summary" class="btn-secondary disabled" id="aiDownloadBtn">⬇ AI Summary</a>
+  </div>
+</div>
+
+<div class="stages" id="stages">
+  <div class="stage" data-stage="crawler">Crawler</div>
+  <div class="stage" data-stage="passive-scanner">Passive</div>
+  <div class="stage" data-stage="active-scanner">Active</div>
+  <div class="stage" data-stage="ai-module">AI</div>
+</div>
+
+<div class="workspace">
+  <div class="logs-section">
+    <h2>Live Scan Log <button class="expand-btn" onclick="toggleExpand(this)">⤢ Expand</button></h2>
+    <div class="log-box" id="logBox">Waiting for scan to start...</div>
+  </div>
+
+  <div class="ai-section">
+    <h2>AI Analysis <button class="expand-btn" onclick="toggleExpand(this)">⤢ Expand</button></h2>
+    <div class="ai-box" id="aiBox"><div class="ai-placeholder">AI analysis results will appear here.</div></div>
+  </div>
+</div>
+
+<script>
+let polling = null;
+let elapsedTimer = null;
+const STAGE_ORDER = ['crawler','passive-scanner','active-scanner','ai-module'];
+
+function setStatus(cls, text) {
+  document.getElementById('statusDot').className = 'status-dot ' + cls;
+  document.getElementById('statusText').textContent = text;
+}
+
+function startElapsed(seconds) {
+  clearInterval(elapsedTimer);
+  let s = seconds || 0;
+  const el = document.getElementById('elapsed');
+  const fmt = n => String(n).padStart(2,'0');
+  const render = () => { el.textContent = `${fmt(Math.floor(s/3600))}:${fmt(Math.floor(s%3600/60))}:${fmt(s%60)}`; };
+  render();
+  elapsedTimer = setInterval(() => { s++; render(); }, 1000);
+}
+
+function updateStages(current, error) {
+  const currentIdx = STAGE_ORDER.indexOf(current);
+  document.querySelectorAll('.stage').forEach(el => {
+    const idx = STAGE_ORDER.indexOf(el.dataset.stage);
+    el.className = 'stage';
+    if (error && el.dataset.stage === current) el.classList.add('error');
+    else if (el.dataset.stage === current) el.classList.add('active');
+    else if (currentIdx === -1 && !error) {}
+    else if (idx < currentIdx) el.classList.add('done');
+  });
+  if (currentIdx === -1 && !error) {
+    document.querySelectorAll('.stage').forEach(el => el.classList.add('done'));
+  }
+}
+
+function toggleExpand(btn) {
+  const section = btn.closest('.logs-section, .ai-section');
+  section.classList.toggle('expanded');
+  btn.textContent = section.classList.contains('expanded') ? '⤡ Collapse' : '⤢ Expand';
+}
+
+function updateAI() {
+  fetch('/ai_summary').then(r => r.json()).then(d => {
+    const box = document.getElementById('aiBox');
+    if (!d.available) {
+      box.innerHTML = '<div class="ai-placeholder">' + (d.message || 'No AI analysis yet.') + '</div>';
+      return;
+    }
+    const data = d.data || {};
+    const items = data.results || [];
+    let html = '';
+    if (data.executive_summary) {
+      html += `<div class="ai-item"><div class="title">Executive Summary</div><div class="expl">${escapeHtml(data.executive_summary)}</div></div>`;
+    }
+    html += items.map(it => {
+      const sev = (it.severity || 'info').toLowerCase();
+      return `<div class="ai-item sev-${sev}">
+        <div class="title">${escapeHtml(it.name || it.vuln_type || 'Finding')}</div>
+        ${it.url ? `<div class="url">${escapeHtml(it.url)}</div>` : ''}
+        <div class="expl">${escapeHtml(it.explanation || it.remediation || '')}</div>
+      </div>`;
+    }).join('');
+    box.innerHTML = html || '<div class="ai-placeholder">No findings in AI summary.</div>';
+    const dl = document.getElementById('aiDownloadBtn');
+    if (dl) dl.classList.remove('disabled');
+  }).catch(e => console.error("AI Update Error:", e));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function lockSecondaryButtons() {
+  document.getElementById('kibanaBtn').classList.add('disabled');
+  document.getElementById('reportBtn').classList.add('disabled');
+  document.getElementById('aiDownloadBtn').classList.add('disabled');
+}
+
+function startScan() {
+  const btn = document.getElementById('scanBtn');
+  btn.textContent = 'Scanning...'; btn.disabled = true;
+  document.getElementById('stopBtn').style.display = 'block';
+  lockSecondaryButtons();
+  setStatus('running', 'Scanning...');
+  document.getElementById('logBox').textContent = 'Starting scan...\n';
+
+  const form = new FormData();
+  form.append('target_url', document.getElementById('target_url').value);
+  form.append('username', document.getElementById('username').value);
+  form.append('password', document.getElementById('password').value);
+  form.append('run_ai', document.getElementById('run_ai').checked ? 'on' : 'off');
+
+  fetch('/start_scan', { method: 'POST', body: form })
+    .then(r => r.json().then(d => ({ok: r.ok, d})))
+    .then(({ok, d}) => {
+      if (!ok) { finishScan('error', d.message || 'Failed to start'); return; }
+      startElapsed(0);
+      startPolling();
+    })
+    .catch(e => finishScan('error', 'Request failed: ' + e));
+}
+
+function stopScan() {
+  fetch('/stop_scan', { method: 'POST' }).then(() => setStatus('', 'Stopping...'));
+}
+
+function refreshButtons() {
+  // Buttons reflect reality: usable whenever a report exists and no scan runs,
+  // regardless of whether the last scan ended cleanly.
+  fetch('/scan_status').then(r => r.json()).then(s => {
+    const running = !!s.running;
+    fetch('/report_status').then(r => r.json()).then(d => {
+      const kb = document.getElementById('kibanaBtn');
+      const rb = document.getElementById('reportBtn');
+      if (!running && d.exists) {
+        kb.href = `http://${window.location.hostname}:5601/app/dashboards#/view/dast-overview-dashboard`;
+        kb.classList.remove('disabled');
+        rb.classList.remove('disabled');
+      } else {
+        kb.classList.add('disabled');
+        rb.classList.add('disabled');
+      }
+    }).catch(() => {});
+  }).catch(() => {});
+}
+
+function startPolling() {
+  clearInterval(polling);
+  polling = setInterval(() => {
+    fetch('/logs?tail=60000').then(r => r.json()).then(d => {
+      const box = document.getElementById('logBox');
+      box.textContent = d.logs;
+      box.scrollTop = box.scrollHeight;
+    });
+    fetch('/scan_status').then(r => r.json()).then(s => {
+      updateStages(s.current_module, s.error);
+      if (!s.running) {
+        if (s.error) finishScan('error', 'Error: ' + s.error);
+        else if (document.getElementById('scanBtn').disabled) finishScan('done', 'Scan Complete');
+      }
+    });
+    updateAI();
+  }, 2500);
+}
+
+function finishScan(cls, text) {
+  clearInterval(polling);
+  clearInterval(elapsedTimer);
+  const btn = document.getElementById('scanBtn');
+  btn.textContent = 'Start New Scan'; btn.disabled = false;
+  document.getElementById('stopBtn').style.display = 'none';
+  setStatus(cls, text);
+  updateAI();
+  refreshButtons();   // unlock based on report existence, not on clean finish only
+}
+
+// On page load: if a scan is already running, resume the running UI; otherwise
+// everything stays locked (buttons start disabled in the HTML).
+fetch('/scan_status').then(r => r.json()).then(s => {
+  if (s.running) {
+    document.getElementById('scanBtn').textContent = 'Scanning...';
+    document.getElementById('scanBtn').disabled = true;
+    document.getElementById('stopBtn').style.display = 'block';
+    lockSecondaryButtons();
+    setStatus('running', 'Scanning...');
+    startElapsed(s.elapsed || 0);
+    startPolling();
+  }
+  updateAI();
+  refreshButtons();
+});
+</script>
+
+</body>
+</html>
