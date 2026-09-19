@@ -180,6 +180,18 @@ services:
       - ollama-data:/root/.ollama
     restart: unless-stopped
 
+  ai-proxy:
+    build: ./ai-proxy
+    image: dast-ai-proxy
+    container_name: dast-ai-proxy
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}     # from .env, gitignored
+      - GROQ_MODEL=${GROQ_MODEL}
+    networks: [dast-net]
+    restart: unless-stopped
+    # NOTE: no "ports:" — internal only, never reachable from host/internet
+
+
   ai-module:
     image: dast-ai
     container_name: dast-ai
@@ -197,6 +209,7 @@ services:
 
     networks: [dast-net]
     restart: "no"
+
 
 
   reporter:

@@ -294,11 +294,11 @@ def ai_summary():
     return jsonify({"available": False, "message": "No AI analysis yet. Enable 'Run AI Analysis' when starting a scan."})
 
 
-@app.route("/download/ai_summary")
-def download_ai_summary():
-    path = os.path.join(OUTPUT_DIR, "ai_summary.json")
+@app.route("/download/ai_summary_txt")
+def download_ai_summary_txt():
+    path = os.path.join(OUTPUT_DIR, "ai_summary.txt")
     if os.path.exists(path):
-        return send_file(path, as_attachment=True, download_name="ai_summary.json")
+        return send_file(path, as_attachment=True, download_name="ai_summary.txt")
     return jsonify({"error": "No AI summary available."}), 404
 
 
