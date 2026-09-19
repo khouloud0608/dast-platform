@@ -149,6 +149,12 @@ def get_session(config):
                 timeout=TIMEOUT, verify=False)
             token = r.json().get("authentication", {}).get("token", "")
             session.headers.update({"Authorization": f"Bearer {token}"})
+            
+        elif app_type == "bwapp":
+            session.post(f"{target_url}/login.php",
+                data={"login": username or "bee", "password": password or "bug",
+                      "security_level": "0", "form": "submit"},
+                timeout=TIMEOUT, verify=False, allow_redirects=True)
 
     except Exception as e:
         print(f"[ERROR] Session setup failed: {e}")

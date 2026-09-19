@@ -281,7 +281,7 @@ function refreshButtons() {
       const kb = document.getElementById('kibanaBtn');
       const rb = document.getElementById('reportBtn');
       if (!running && d.exists) {
-        kb.href = `http://${window.location.hostname}:5601/app/dashboards#/view/dast-overview-dashboard`;
+        kb.href = `http://${window.location.hostname}:5601/app/dashboards#/`;
         kb.classList.remove('disabled');
         rb.classList.remove('disabled');
       } else {

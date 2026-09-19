@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels \
     elasticsearch==8.13.0 \
     python-dotenv==1.0.1
 COPY . .
-CMD ["scrapy", "crawl", "dvwa"]
+CMD ["scrapy", "crawl", "DAST"]

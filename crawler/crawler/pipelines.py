@@ -9,6 +9,11 @@ class JsonPipeline:
         os.makedirs(output_dir, exist_ok=True)
         self.filepath = os.path.join(output_dir, "crawl_results.json")
         self.items = []
+        # Truncate stale results at START so a crawl that finds few/0 items
+        # can never leave a previous scan's data for the scanners to read.
+        with open(self.filepath, "w") as f:
+            json.dump([], f)
+        spider.logger.info(f"Cleared previous crawl results at {self.filepath}")
 
     def process_item(self, item, spider):
         self.items.append(dict(item))

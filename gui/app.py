@@ -176,11 +176,16 @@ def start_scan():
 
     username = request.form.get("username", "").strip()
     password = request.form.get("password", "").strip()
+    target = config["target_url"].lower()
 
-    # Creds-based app_type: credentials present -> authenticated app (DVWA login flow);
-    # no credentials -> generic no-auth crawl. Dropdown removed from the GUI.
+    # Route to the right login flow by target, when creds are given
     if username or password:
-        config["app_type"] = "dvwa"
+        if "bwapp" in target:
+            config["app_type"] = "bwapp"
+        elif "dvwa" in target:
+            config["app_type"] = "dvwa"
+        else:
+            config["app_type"] = "generic"
     else:
         config["app_type"] = "generic"
 

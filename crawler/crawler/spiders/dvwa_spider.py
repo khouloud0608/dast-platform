@@ -17,7 +17,7 @@ def load_config():
     }
 
 class DVWASpider(scrapy.Spider):
-    name = "dvwa"
+    name = "DAST"
     BLACKLIST = ["logout", "setup.php", "logoff", "signout"]
 
     custom_settings = {
@@ -38,20 +38,29 @@ class DVWASpider(scrapy.Spider):
 
     def start_requests(self):
         if self.app_type == "dvwa":
-            yield scrapy.Request(
-                url=f"{self.target_url}/setup.php",
-                callback=self.dvwa_setup
+            yield scrapy.Request(url=f"{self.target_url}/setup.php", callback=self.dvwa_setup)
+        elif self.app_type == "bwapp":
+            # bWAPP: single POST logs in AND sets security level (no CSRF token)
+            yield scrapy.FormRequest(
+                url=f"{self.target_url}/login.php",
+                formdata={
+                    "login": self.username or "bee",
+                    "password": self.password or "bug",
+                    "security_level": "0",
+                    "form": "submit",
+                },
+                callback=self.bwapp_after_login,
+                dont_filter=True,
             )
         elif self.app_type == "juiceshop":
             yield scrapy.Request(
                 url=f"{self.target_url}/rest/user/login",
-                callback=self.parse,
-                method="POST",
+                callback=self.parse, method="POST",
                 body=json.dumps({"email": self.username, "password": self.password}),
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
             )
         else:
-            yield scrapy.Request(url=self.target_url, callback=self.parse)
+            yield scrapy.Request(url=self.target_url, callback=self.parse)  # generic
 
     def dvwa_setup(self, response):
         token = response.css("input[name='user_token']::attr(value)").get()
@@ -95,6 +104,27 @@ class DVWASpider(scrapy.Spider):
             )
         else:
             self.logger.error(f"Login failed! Status: {response.status}")
+
+    def bwapp_after_login(self, response):
+        self.logger.info(f"bWAPP login response: {response.status} | URL: {response.url}")
+        if "portal.php" in response.url or response.status in [200, 302]:
+            # bWAPP's vuln pages live in a <select> dropdown, not <a> links.
+            # Extract the page list from the menu itself — no hardcoded filenames.
+            pages = response.css("select option::attr(value)").getall()
+            pages = [p.strip() for p in pages
+                     if p and p.strip().endswith(".php") and "/" not in p]
+            pages = sorted(set(pages))
+            self.logger.info(f"bWAPP: discovered {len(pages)} vuln pages from menu")
+            if not pages:
+                self.logger.error("bWAPP: no pages found in dropdown - login may have failed")
+            for page in pages:
+                yield scrapy.Request(
+                    url=f"{self.target_url}/{page}",
+                    callback=self.parse,
+                    dont_filter=True,
+                )
+        else:
+            self.logger.error(f"bWAPP login failed! Status: {response.status}")
 
     def parse(self, response):
         if any(bl in response.url for bl in self.BLACKLIST):
