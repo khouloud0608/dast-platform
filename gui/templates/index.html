@@ -281,7 +281,7 @@ function refreshButtons() {
       const kb = document.getElementById('kibanaBtn');
       const rb = document.getElementById('reportBtn');
       if (!running && d.exists) {
-        kb.href = `http://${window.location.hostname}:5601/app/dashboards#/`;
+        kb.href = `http://${window.location.hostname}:5601/app/dashboards#/view/dast-overview-dashboard`;
         kb.classList.remove('disabled');
         rb.classList.remove('disabled');
       } else {
@@ -323,9 +323,12 @@ function finishScan(cls, text) {
 }
 
 // On page load: if a scan is already running, resume the running UI; otherwise
-// everything stays locked (buttons start disabled in the HTML).
+// On page load: clean slate. Buttons stay locked (as in the HTML) and the AI
+// panel shows its placeholder. We only resume live state if a scan is ACTUALLY
+// running right now; we do NOT surface a previous session's report or summary.
 fetch('/scan_status').then(r => r.json()).then(s => {
   if (s.running) {
+    // A scan is genuinely in progress — resume the live view.
     document.getElementById('scanBtn').textContent = 'Scanning...';
     document.getElementById('scanBtn').disabled = true;
     document.getElementById('stopBtn').style.display = 'block';
@@ -333,9 +336,12 @@ fetch('/scan_status').then(r => r.json()).then(s => {
     setStatus('running', 'Scanning...');
     startElapsed(s.elapsed || 0);
     startPolling();
+  } else {
+    // Idle: reset AI panel to placeholder, leave all buttons locked.
+    const box = document.getElementById('aiBox');
+    if (box) box.innerHTML = '<div class="ai-placeholder">AI analysis results will appear here.</div>';
+    lockSecondaryButtons();
   }
-  updateAI();
-  refreshButtons();
 });
 </script>
 
