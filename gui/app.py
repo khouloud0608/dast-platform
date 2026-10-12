@@ -4,6 +4,8 @@ import shutil
 import subprocess
 import threading
 import uuid
+import re
+from urllib.parse import urlparse
 from datetime import datetime
 
 import requests as http_requests
@@ -19,6 +21,12 @@ PROJECT_NAME = "dast-platform"
 ES_URL       = os.environ.get("ES_URL", "http://elasticsearch:9200")
 KIBANA_URL   = os.environ.get("KIBANA_URL", "http://kibana:5601")
 KIBANA_URL_EXTERNAL = os.environ.get("KIBANA_URL_EXTERNAL", "http://localhost:5601")
+KIBANA_DASHBOARD_ID = os.environ.get("KIBANA_DASHBOARD_ID", "c64fff55-704f-48ba-b716-28a5ef6c450b")
+
+# Log lines that reveal durations/rates are dropped; leading timestamps stripped.
+TIMING_RE = re.compile(r"elapsed_time_seconds|'start_time'|'finish_time'|pages/min|items/min")
+TS_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d+)? ")
+KNOWN_APPS = {"dvwa": "DVWA", "juice": "Juice Shop", "bwapp": "bWAPP", "vulnsite": "VulnSite"}
 
 DEFAULT_CONFIG = {
     "target_url": "http://dvwa:80",
@@ -41,7 +49,7 @@ state_lock = threading.Lock()
 
 def log(msg):
     with open(LOG_FILE, "a") as f:
-        f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+        f.write(f"{msg}\n")
 
 
 def ensure_config_file():
@@ -117,7 +125,9 @@ def run_module(module_name):
     scan_state["process"] = process
     with open(LOG_FILE, "a") as f:
         for line in process.stdout:
-            f.write(line)
+            if TIMING_RE.search(line):
+                continue
+            f.write(TS_PREFIX.sub("", line))
             f.flush()
     process.wait()
     log(f"{module_name} finished (exit code {process.returncode})")
@@ -239,8 +249,6 @@ def scan_status():
     with state_lock:
         s = dict(scan_state)
         s.pop("process", None)
-    if s.get("started_at"):
-        s["elapsed"] = (datetime.now() - datetime.fromisoformat(s["started_at"])).seconds
     return jsonify(s)
 
 
@@ -276,7 +284,7 @@ def report_status():
 def download_report():
     path = os.path.join(OUTPUT_DIR, "report.pdf")
     if os.path.exists(path):
-        return send_file(path, as_attachment=True, download_name="dast_report.pdf")
+        return send_file(path, as_attachment=True, download_name=f"{target_name()} scan report.pdf")
     return jsonify({"error": "Report not generated yet."}), 404
 
 
@@ -298,8 +306,38 @@ def ai_summary():
 def download_ai_summary_txt():
     path = os.path.join(OUTPUT_DIR, "ai_summary.txt")
     if os.path.exists(path):
-        return send_file(path, as_attachment=True, download_name="ai_summary.txt")
+        return send_file(path, as_attachment=True, download_name=f"{target_name()} ai summary.txt")
     return jsonify({"error": "No AI summary available."}), 404
+
+
+def target_name():
+    """Human-readable name of the last scanned target, for download filenames."""
+    url = read_config().get("target_url", "")
+    host = (urlparse(url if "://" in url else "http://" + url).hostname or "").lower()
+    for key, label in KNOWN_APPS.items():
+        if key in host:
+            return label
+    return re.sub(r"[^A-Za-z0-9._ -]", "_", host) or "Target"
+
+
+@app.route("/kibana_embed")
+def kibana_embed():
+    """Path of the embeddable dashboard. The browser prefixes the Kibana base URL."""
+    dash_id = KIBANA_DASHBOARD_ID
+    try:
+        r = http_requests.get(
+            f"{KIBANA_URL}/api/saved_objects/_find",
+            params={"type": "dashboard", "search": "DAST*", "search_fields": "title"},
+            timeout=3,
+        )
+        objs = r.json().get("saved_objects", [])
+        if objs:
+            dash_id = objs[0]["id"]
+    except Exception:
+        pass
+    g = "(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:now-90d,to:now))"
+    return jsonify({"path": f"/app/dashboards#/view/{dash_id}?embed=true&_g={g}"
+                            "&show-time-filter=true&hide-filter-bar=true"})
 
 
 if __name__ == "__main__":

@@ -8,8 +8,8 @@ services:
     image: dast-gui
     container_name: dast-gui
     environment:
-      - KIBANA_URL_EXTERNAL=http://192.168.159.155:5601
-      - KIBANA_URL=http://kibana:5601 
+      - KIBANA_URL_EXTERNAL=https://dast.internal/kibana
+      - KIBANA_URL=http://kibana:5601/kibana 
     ports:
       - "8888:8888"
     volumes:
@@ -59,19 +59,6 @@ services:
     ports:
       - "8082:80"
   
-  juice-shop:
-    image: bkimminich/juice-shop:latest
-    container_name: juice-shop
-    networks: [dast-net]
-    ports:
-      - "${JUICE_PORT}:3000"
-
-  bwapp:
-    image: raesene/bwapp:latest
-    container_name: bwapp
-    networks: [dast-net]
-    ports:
-      - "8081:80"
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${ES_VERSION}
@@ -96,6 +83,9 @@ services:
     container_name: kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - SERVER_BASEPATH=/kibana
+      - SERVER_REWRITEBASEPATH=true
+      - SERVER_PUBLICBASEURL=https://dast.internal/kibana
     networks: [dast-net]
     ports:
       - "${KIBANA_PORT}:5601"
@@ -116,25 +106,6 @@ services:
     volumes:
       - /opt/dast-platform/output:/app/output
       - /opt/dast-platform/config.json:/app/config.json
-
-
-
-#  crawler:
-#    build: ./crawler
-#    command: scrapy crawl dvwa
-#    environment:
-#      TARGET_URL: "http://dvwa:80"
-#      APP_NAME: "dvwa"
-#      SCAN_ID: "${SCAN_ID:-manual}"
-#      SKIP_CRAWL: "false"
-#      LOGIN_URL: "http://dvwa:80/login.php"
-#      LOGIN_USER: "admin"
-#      LOGIN_PASS: "password"
-#      LOGIN_EXTRA: '{"Login": "Login"}'
-#      CACHE_TTL_HOURS: "24"
-#      MAX_PAGES: "200"
-#    volumes:
-#      - /opt/dast-platform/output:/app/output
 
 
     networks: [dast-net]
@@ -172,41 +143,19 @@ services:
     depends_on: [crawler]
     restart: "no"
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    networks: [dast-net]
-    volumes:
-      - ollama-data:/root/.ollama
-    restart: unless-stopped
-
-  ai-proxy:
-    build: ./ai-proxy
-    image: dast-ai-proxy
-    container_name: dast-ai-proxy
-    environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}     # from .env, gitignored
-      - GROQ_MODEL=${GROQ_MODEL}
-    networks: [dast-net]
-    restart: unless-stopped
-    # NOTE: no "ports:" — internal only, never reachable from host/internet
-
-
   ai-module:
     image: dast-ai
     container_name: dast-ai
     environment:
-      - ES_HOST=http://elasticsearch:9200
-      - ES_PORT=9200
-      - LLM_BASE_URL=http://192.168.1.12:1234/v1
-      - MODEL=qwen2.5-3b-instruct
-      - WORKERS=1
+      - ES_URL=http://elasticsearch:9200
+      - OLLAMA_URL=http://192.168.159.1:11434
+      - OLLAMA_MODEL=qwen-cpu
+      - OLLAMA_TIMEOUT=300
     volumes:
       - /opt/dast-platform/config.json:/app/config.json
       - /opt/dast-platform/ai-module:/app
       - /opt/dast-platform/output:/app/input:ro
       - /opt/dast-platform/output:/app/output
-
     networks: [dast-net]
     restart: "no"
 
@@ -224,7 +173,31 @@ services:
     networks: [dast-net]
     restart: "no"
 
+  dns:
+    image: coredns/coredns:1.11.3
+    container_name: dast-dns
+    command: -conf /etc/coredns/Corefile
+    volumes:
+      - ./dns/Corefile:/etc/coredns/Corefile:ro
+    ports:
+      - "192.168.159.155:53:53/udp"
+      - "192.168.159.155:53:53/tcp"
+    networks: [dast-net]
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: dast-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    networks: [dast-net]
+    depends_on: [gui, kibana]
+    restart: unless-stopped
+
 volumes:
   es-data:
   dvwa-db-data:
-  ollama-data:

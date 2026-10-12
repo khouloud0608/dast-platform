@@ -1,0 +1,8 @@
+dast.internal:53 {
+    hosts {
+        192.168.159.155 dast.internal
+        ttl 300
+    }
+    errors
+    log
+}

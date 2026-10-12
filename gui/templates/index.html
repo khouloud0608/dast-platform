@@ -106,6 +106,16 @@
   .ai-item.sev-high { border-left-color:var(--orange); }
   .ai-item.sev-medium { border-left-color:var(--yellow); }
   .ai-item.sev-low, .ai-item.sev-info { border-left-color:var(--green); }
+  .tabs { display:flex; gap:4px; padding:12px 28px 0; flex-shrink:0; }
+  .tab { padding:8px 18px; font-size:12px; font-weight:600; color:var(--text-dim); background:transparent; border:1px solid transparent; border-bottom:none; border-radius:8px 8px 0 0; cursor:pointer; }
+  .tab:hover { color:var(--accent); }
+  .tab.active { background:var(--card); color:var(--accent); border-color:var(--border); }
+  .tab.disabled { opacity:0.4; pointer-events:none; }
+  .workspace.hidden { display:none; }
+  .dashboard-view { display:none; flex:1; min-height:0; padding:0 28px 16px; }
+  .dashboard-view.active { display:flex; }
+  .dashboard-frame-wrap { flex:1; display:flex; background:var(--card); border:1px solid var(--border); border-radius:0 10px 10px 10px; overflow:hidden; }
+  .dashboard-frame-wrap iframe { flex:1; width:100%; height:100%; border:0; }
 </style>
 </head>
 <body>
@@ -117,7 +127,6 @@
   <div class="header-right">
     <div class="status-dot" id="statusDot"></div>
     <span class="status-text" id="statusText">Ready</span>
-    <span class="elapsed" id="elapsed"></span>
   </div>
 </div>
 
@@ -141,7 +150,6 @@
   <div class="action-group">
     <button class="btn-scan" id="scanBtn" onclick="startScan()">Start Scan</button>
     <button class="btn-stop" id="stopBtn" onclick="stopScan()">Stop</button>
-    <a href="#" id="kibanaBtn" target="_blank" class="btn-secondary disabled">Kibana Dashboards</a>
     <a href="/download/report" class="btn-secondary disabled" id="reportBtn">⬇ PDF Report</a>
     <a href="/download/ai_summary_txt" class="btn-secondary disabled" id="aiDownloadBtn">⬇ AI Summary</a>
   </div>
@@ -154,7 +162,12 @@
   <div class="stage" data-stage="ai-module">AI</div>
 </div>
 
-<div class="workspace">
+<div class="tabs">
+  <button class="tab active" id="tabScan" onclick="showView('scan')">Scan &amp; AI Analysis</button>
+  <button class="tab disabled" id="tabDash" onclick="showView('dashboard')">Kibana Dashboard</button>
+</div>
+
+<div class="workspace" id="scanView">
   <div class="logs-section">
     <h2>Live Scan Log <button class="expand-btn" onclick="toggleExpand(this)">⤢ Expand</button></h2>
     <div class="log-box" id="logBox">Waiting for scan to start...</div>
@@ -166,24 +179,41 @@
   </div>
 </div>
 
+<div class="dashboard-view" id="dashView">
+  <div class="dashboard-frame-wrap">
+    <iframe id="kibanaFrame" title="Kibana Dashboard"></iframe>
+  </div>
+</div>
+
 <script>
 let polling = null;
-let elapsedTimer = null;
 const STAGE_ORDER = ['crawler','passive-scanner','active-scanner','ai-module'];
+
+// The BROWSER loads Kibana, so build its address from the page's own hostname
+// (survives VM IP changes). After the TLS/nginx step this becomes '/kibana'.
+const KIBANA_BASE = '/kibana';
+
+function loadDashboard(force) {
+  fetch('/kibana_embed').then(r => r.json()).then(d => {
+    if (!d.path) return;
+    const frame = document.getElementById('kibanaFrame');
+    const url = KIBANA_BASE + d.path;
+    if (force || frame.dataset.src !== url) { frame.src = url; frame.dataset.src = url; }
+  }).catch(() => {});
+}
+
+function showView(view) {
+  const dash = view === 'dashboard';
+  document.getElementById('scanView').classList.toggle('hidden', dash);
+  document.getElementById('dashView').classList.toggle('active', dash);
+  document.getElementById('tabScan').classList.toggle('active', !dash);
+  document.getElementById('tabDash').classList.toggle('active', dash);
+  if (dash) loadDashboard(true);   // reload each time so it shows the latest data
+}
 
 function setStatus(cls, text) {
   document.getElementById('statusDot').className = 'status-dot ' + cls;
   document.getElementById('statusText').textContent = text;
-}
-
-function startElapsed(seconds) {
-  clearInterval(elapsedTimer);
-  let s = seconds || 0;
-  const el = document.getElementById('elapsed');
-  const fmt = n => String(n).padStart(2,'0');
-  const render = () => { el.textContent = `${fmt(Math.floor(s/3600))}:${fmt(Math.floor(s%3600/60))}:${fmt(s%60)}`; };
-  render();
-  elapsedTimer = setInterval(() => { s++; render(); }, 1000);
 }
 
 function updateStages(current, error) {
@@ -239,12 +269,13 @@ function escapeHtml(s) {
 }
 
 function lockSecondaryButtons() {
-  document.getElementById('kibanaBtn').classList.add('disabled');
+  document.getElementById('tabDash').classList.add('disabled');
   document.getElementById('reportBtn').classList.add('disabled');
   document.getElementById('aiDownloadBtn').classList.add('disabled');
 }
 
 function startScan() {
+  showView('scan');
   const btn = document.getElementById('scanBtn');
   btn.textContent = 'Scanning...'; btn.disabled = true;
   document.getElementById('stopBtn').style.display = 'block';
@@ -262,7 +293,6 @@ function startScan() {
     .then(r => r.json().then(d => ({ok: r.ok, d})))
     .then(({ok, d}) => {
       if (!ok) { finishScan('error', d.message || 'Failed to start'); return; }
-      startElapsed(0);
       startPolling();
     })
     .catch(e => finishScan('error', 'Request failed: ' + e));
@@ -278,10 +308,10 @@ function refreshButtons() {
   fetch('/scan_status').then(r => r.json()).then(s => {
     const running = !!s.running;
     fetch('/report_status').then(r => r.json()).then(d => {
-      const kb = document.getElementById('kibanaBtn');
+      const kb = document.getElementById('tabDash');
       const rb = document.getElementById('reportBtn');
       if (!running && d.exists) {
-        kb.href = `http://${window.location.hostname}:5601/app/dashboards#/view/dast-overview-dashboard`;
+        loadDashboard();
         kb.classList.remove('disabled');
         rb.classList.remove('disabled');
       } else {
@@ -313,7 +343,6 @@ function startPolling() {
 
 function finishScan(cls, text) {
   clearInterval(polling);
-  clearInterval(elapsedTimer);
   const btn = document.getElementById('scanBtn');
   btn.textContent = 'Start New Scan'; btn.disabled = false;
   document.getElementById('stopBtn').style.display = 'none';
@@ -334,7 +363,6 @@ fetch('/scan_status').then(r => r.json()).then(s => {
     document.getElementById('stopBtn').style.display = 'block';
     lockSecondaryButtons();
     setStatus('running', 'Scanning...');
-    startElapsed(s.elapsed || 0);
     startPolling();
   } else {
     // Idle: reset AI panel to placeholder, leave all buttons locked.
