@@ -81,19 +81,35 @@ def f_get(d, *keys, default=""):
 
 def aggregate(findings):
     sev, typ, urls = Counter(), Counter(), Counter()
+    type_sev = {}  # type -> Counter(severity -> count)
     for f in findings:
         if not isinstance(f, dict):
             continue
-        sev[str(f_get(f, "severity", "risk", "level", default="info")).lower()] += 1
-        typ[str(f_get(f, "type", "vuln_type", "name", "check", "issue",
-                       "category", default="other"))] += 1
+        s = str(f_get(f, "severity", "risk", "level", default="info")).lower()
+        t = str(f_get(f, "type", "vuln_type", "name", "check", "issue",
+                      "category", default="other"))
+        sev[s] += 1
+        typ[t] += 1
+        type_sev.setdefault(t, Counter())[s] += 1
         u = f_get(f, "url", "target", "endpoint", default="")
         if u:
             urls[str(u)] += 1
+
+    # Pair each issue type with the severity the scanner assigned it, so the
+    # model respects those labels instead of guessing a severity per type.
+    sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    findings_by_type = []
+    for t, counts in type_sev.items():
+        label = min(counts, key=lambda x: sev_rank.get(x, 9))
+        findings_by_type.append(
+            {"type": t, "severity": label, "count": sum(counts.values())}
+        )
+    findings_by_type.sort(key=lambda d: (sev_rank.get(d["severity"], 9), -d["count"]))
+
     return {
         "total": len(findings),
         "by_severity": dict(sev),
-        "by_type": dict(typ.most_common(15)),
+        "findings_by_type": findings_by_type[:20],
         "top_urls": dict(urls.most_common(10)),
     }
 
@@ -105,6 +121,21 @@ def build_prompt(stats, app_type):
         "section of a DAST (Dynamic Application Security Testing) report for a "
         f"{app_type}. Below are the AGGREGATED scan results as JSON.\n\n"
         f"{json.dumps(stats, indent=2)}\n\n"
+        "SEVERITY RULES (follow exactly):\n"
+        "- 'by_severity' gives the exact count of findings at each level. Use "
+        "these numbers as-is; do not recompute or invent totals.\n"
+        "- 'findings_by_type' lists each issue type with the severity the "
+        "scanner assigned it. That label is authoritative.\n"
+        "- Never describe an issue at a higher or lower severity than its "
+        "label. If a missing header is labeled medium, do not call it "
+        "high-severity or group it with the high-severity findings.\n"
+        "- When naming the most serious issues, choose only from the Critical "
+        "and High entries of 'findings_by_type'.\n\n"
+        "- When naming the most serious issues, choose only from the Critical "
+        "and High entries of 'findings_by_type'.\n"
+        "- Mention every Critical and High issue type by name.\n"
+        "- 'top_urls' only counts findings per URL. Do not speculate about "
+        "traffic, usage, popularity or why findings concentrate on a page.\n\n"
         "Respond with ONLY a JSON object with exactly these two fields:\n"
         '  "executive_summary": a 120-200 word plain-text overview of the '
         "overall security posture, the most serious issues, and the business "

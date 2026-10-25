@@ -19,3 +19,10 @@ __pycache__/
 all-wheels/
 .env
 nginx/certs/
+
+# --- Final version additions ---
+nginx/ca/
+*.key
+*.csr
+*.srl
+*.bak*
